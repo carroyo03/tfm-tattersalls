@@ -1,6 +1,10 @@
+# Entorno de Python recomendado: >=3.9
+# Dependencias base para procesamiento de datos y visualización
+
 pandas
 numpy
 ipykernel
 matplotlib
 requests
 rapidfuzz
+onspy

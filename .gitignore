@@ -1,5 +1,16 @@
 .venv
 0*.md
 01*files
-data/*
 *cache*
+.vscode/*
+.kiro/*
+.aiassistant/*
+.claude/*
+.opencode/*
+.idea/*
+thesis_memory/*
+data/*
+logs/*
+AGENTS*
+*DS*
+.ipynb_checkpoints/
