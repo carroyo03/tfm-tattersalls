@@ -6,6 +6,10 @@
 .kiro/*
 .aiassistant/*
 .claude/*
+.gemini/*
+.antigravity/*
+tasks
+wiki
 CLAUDE.md
 .opencode/*
 .idea/*
@@ -15,3 +19,4 @@ logs/*
 AGENTS*
 *DS*
 .ipynb_checkpoints/
+.continue

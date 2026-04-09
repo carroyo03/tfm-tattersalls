@@ -10,3 +10,7 @@ rapidfuzz
 onspy
 scipy-stubs
 plotly
+seaborn
+scipy
+pyarrow
+fastparquet
