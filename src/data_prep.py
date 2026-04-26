@@ -1,7 +1,15 @@
 # Automatically extracted data preparation functions
-import pandas as pd
+import datetime
+import urllib3
+import warnings
+from io import StringIO
+from pathlib import Path
+
 import numpy as np
+import pandas as pd
 import re
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 pd.set_option('display.max_columns', 50)
@@ -314,4 +322,113 @@ def mean_annual_share_table(df, entity_col, label_col=None):
 
     return summary
 
+_BOE_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+    "Accept-Language": "en-GB,en;q=0.9",
+}
+_CACHE_DEFAULT = Path(__file__).parent.parent / "data" / "processed" / "macro_data.parquet"
 
+
+def _fetch_boe_rate(start_year: int) -> pd.Series:
+    """Parse Bank Rate history from BoE public HTML table → annual mean series."""
+    import requests
+    from bs4 import BeautifulSoup
+
+    r = requests.get(
+        "https://www.bankofengland.co.uk/boeapps/database/Bank-Rate.asp",
+        headers=_BOE_HEADERS,
+        verify=False,
+        timeout=20,
+    )
+    r.raise_for_status()
+    soup = BeautifulSoup(r.text, "html.parser")
+    df = pd.read_html(StringIO(str(soup.find("table"))))[0]
+    df.columns = ["date_changed", "rate"]
+    df["date_changed"] = pd.to_datetime(df["date_changed"], format="%d %b %y")
+    df = df.sort_values("date_changed")
+
+    end = pd.Timestamp.today().normalize()
+    daily_idx = pd.date_range(f"{start_year}-01-01", end, freq="D")
+    return (
+        df.set_index("date_changed")
+        .reindex(daily_idx)
+        .ffill()
+        .resample("YE")
+        .mean()["rate"]
+    )
+
+
+def _fetch_gbp_eur(start_year: int) -> pd.Series:
+    """Download GBP/EUR daily closes from Yahoo Finance → annual mean series."""
+    import yfinance as yf
+
+    fx = yf.download("GBPEUR=X", start=f"{start_year}-01-01", progress=False)["Close"]
+    if hasattr(fx, "columns"):
+        fx = fx.iloc[:, 0]
+    return fx.resample("YE").mean()
+
+
+def get_macro_data(
+    start_year: int = 2009,
+    cache_path: Path | None = None,
+    max_cache_age_days: int = 7,
+) -> pd.DataFrame:
+    """Return annual macroeconomic indicators for the Tattersalls model.
+
+    Fetches live data from official sources and caches to disk so notebook
+    reruns don't trigger network calls unnecessarily.
+
+    Sources
+    -------
+    - GBP/EUR : Yahoo Finance (yfinance), daily close → annual mean
+    - BoE Base Rate : bankofengland.co.uk/boeapps/database/Bank-Rate.asp
+      (public HTML table, forward-filled daily → annual mean)
+
+    Parameters
+    ----------
+    start_year : int
+        First year to include (default 2009).
+    cache_path : Path | None
+        Parquet file for disk cache. Defaults to data/processed/macro_data.parquet.
+    max_cache_age_days : int
+        Days before cache is considered stale and refreshed (default 7).
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns: sale_year (int), gbp_eur_rate (float), boe_base_rate (float).
+        One row per year from start_year to most recent available.
+    """
+    cache = Path(cache_path) if cache_path else _CACHE_DEFAULT
+
+    # Return cache if fresh
+    if cache.exists():
+        age = datetime.datetime.now() - datetime.datetime.fromtimestamp(cache.stat().st_mtime)
+        if age.days < max_cache_age_days:
+            df = pd.read_parquet(cache)
+            return df[df["sale_year"] >= start_year].reset_index(drop=True)
+
+    print("Fetching macro data from live sources...")
+    try:
+        boe = _fetch_boe_rate(start_year)
+        fx = _fetch_gbp_eur(start_year)
+        print("  GBP/EUR : Yahoo Finance OK")
+        print("  BoE Base Rate : bankofengland.co.uk OK")
+    except Exception as exc:
+        warnings.warn(f"Live fetch failed ({exc}). Falling back to cached/hardcoded values.")
+        if cache.exists():
+            df = pd.read_parquet(cache)
+            return df[df["sale_year"] >= start_year].reset_index(drop=True)
+        raise RuntimeError("No cache available and live fetch failed.") from exc
+
+    # Align on year index
+    years = boe.index.year.intersection(fx.index.year)
+    df = pd.DataFrame({
+        "sale_year": years,
+        "gbp_eur_rate": fx[fx.index.year.isin(years)].values.round(4),
+        "boe_base_rate": boe[boe.index.year.isin(years)].values.round(4),
+    })
+
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(cache, index=False)
+    return df[df["sale_year"] >= start_year].reset_index(drop=True)
