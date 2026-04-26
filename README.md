@@ -1,22 +1,25 @@
-# Predictive Modeling for Horse Auction Prices
+# Predictive Modelling for Horse Auction Prices
 **Master's Thesis (TFM) — Master in Big Data Science & Artificial Intelligence**  
 *Universidad de Navarra · idealista*
 
-> **Status**: Exploratory Data Analysis (EDA) ✅ completed · Predictive modeling 🔄 in progress  
-> **Note**: This repository contains only the code and reproducible analysis. The final thesis document is submitted separately to the university.
+> **Status**: Data Preparation ✅ · EDA ✅ · Feature Engineering ✅ · Modelling 🔄 in progress  
+> This repository contains code and reproducible analysis only. The final thesis document is submitted separately.
 
 ---
 
 ## 1. Overview & Research Focus
 
-This project develops predictive models for horse auction pricing, using the *Tattersalls Autumn Horses in Training Sale* (2009–2025, 17 editions) as the primary dataset. The goal is to identify which factors most influence sale prices and to build interpretable models that can assist stakeholders in valuation decisions.
+This project develops a two-stage predictive pipeline for the *Tattersalls Autumn Horses in Training Sale* (2009–2025, 17 editions, 26,076 catalogued lots). The pipeline addresses two sequential questions:
 
-The thesis tackles critical challenges in auction forecasting:
+1. **Will this horse sell to a third party?** — binary classification → P(sold\_to\_third\_party)
+2. **What price will it fetch?** — regression on `log(price_gns)`, applied to all offered lots
 
-- **Severe target skewness** — the price distribution is log-normal (skewness 6.98), driven by a small number of elite lots (the "superstar effect" in bloodstock).
-- **Temporal structure** — 17 years of macroeconomic drift, stallion career cycles, and shifting consignor dominance require temporal validation, not random k-fold.
-- **High-cardinality categorical variables** — ~997 unique sires and ~840 consignors, with ~90% and ~70% rotation between the 2009–2015 and 2021–2025 periods respectively.
-- **Endogenous features** — catalogue day (`day`) is a powerful predictor but partially encodes latent quality chosen by consignors, not a causal lever.
+The core challenges driving methodological choices:
+
+- **Selection bias** — prices are only observed for lots that sell or are bought back. Training a regression on sold lots only produces biased coefficient estimates (Heckman, 1979). Vendor buybacks (whose reserve prices are revealed) are included in the regression training set to partially mitigate this.
+- **Temporal drift** — 17 years of macroeconomic shift (+78% nominal prices, GBP/EUR volatility, BoE rate cycles) require strict temporal validation and a detrended regression target.
+- **High-cardinality entities** — ~997 unique sires, ~840 consignors, with ~90% and ~70% rotation between early (2009–2015) and recent (2021–2025) periods. Cold-start risk at inference time.
+- **Log-normal price distribution** — skewness 6.98 in raw scale, 0.03 in log scale. Regression target is always `log_price_gns`.
 
 ---
 
@@ -24,93 +27,150 @@ The thesis tackles critical challenges in auction forecasting:
 
 | Finding | Result |
 |---|---|
-| **Price distribution** | Log-normal (skewness 6.98 raw, 0.03 in log scale) — regression target: `log_price_gns` |
-| **Strongest signal** | Catalogue day: Days 2–3 median 17,000 gns vs Days 4–5 4,000 gns (3.4×, permutation p<0.0001) |
-| **Sex effect** | Colts 17,000 > Geldings 13,000 > Fillies 7,000 gns (permutation diff 0.887 log-units, p<0.0001) |
-| **Intra-day structure** | "Prime time" effect: median price peaks at lot positions 0.6–0.8 within the day; clearance rate remains flat (~80–90%), suggesting a quality-selection mechanism rather than buyer fatigue |
-| **Nominal vs real growth** | +60% nominal price growth (2009–2025) but only ~+2% real — 58 percentage points explained by inflation (ONS CPIH01, deflated to constant GBP) |
-| **Entity rotation** | Top sires rotated ~90% between periods (Acclamation/Oasis Dream → Kodiac/Dark Angel); top consignors ~70% — cold-start risk at evaluation time |
+| **Price distribution** | Log-normal (skewness 6.98 raw → 0.03 log) — target: `log_price_gns` |
+| **Strongest predictor** | Catalogue day: Days 1–2 median ~17,000 gns vs Days 4–5 ~4,000 gns (3.4×, permutation p<0.0001) |
+| **Sex premium** | Colts 17,000 > Geldings 13,000 > Fillies 7,000 gns (diff 0.887 log-units, p<0.0001) |
+| **Intraday structure** | Price peaks at lot positions 0.6–0.8 within day ("prime time"); clearance rate flat (~85–90%) |
+| **Nominal vs real growth** | +78% nominal (2009–2025), ~+20% real — ~58 pp explained by CPIH inflation |
+| **Entity rotation** | Top sires ~90% rotated between periods; top consignors ~70% — cold-start risk |
+| **Post-Brexit stability** | Day 1–2 price premium structurally stable across 4- and 5-day sale editions |
 
 ---
 
-## 3. Methodology & Rigor
+## 3. Modelling Architecture
 
-- **Problem framing**: Two-stage pipeline — (1) classify `sold_to_third_party`, (2) regress `log_price_gns` on sold lots only. Unsold lots have no price; conflating them inflates noise.
-- **Validation**: Strict temporal split — train on 2009–2021, evaluate on 2022–2025. Random k-fold would be optimistic by ~0.5 log-units due to market drift.
-- **Evaluation metric**: RMSE on log-scale (equivalent to RMSLE on the original scale). Symmetric penalty for over- and underestimation.
-- **High-cardinality encoding**: Target encoding with leave-one-out regularization (`category_encoders.TargetEncoder`), fitted strictly on the training split before the temporal cutoff to prevent temporal leakage.
-- **Model explainability**: SHAP values to decompose feature contributions. `day` will be flagged explicitly as partially encoding latent quality, not direct causality.
-- **Anti-leakage**: `purchaser`, `sale_outcome`, and `price_euros` excluded from the feature matrix (post-outcome variables not available at prediction time).
+### Stage 1 — Classification: P(sold\_to\_third\_party)
+
+Binary classifier predicting whether a catalogued lot will sell to a third party.
+
+| Decision | Choice | Reason |
+|---|---|---|
+| **Target** | `sold_to_third_party` (binary) | Economically meaningful; vendor buyback vs. not-sold distinction driven by unobservable reserve price |
+| **Universe** | All offered lots (~18,989, withdrawn excluded) | Withdrawn lots never faced the market |
+| **Class imbalance** | ~87% positive — `class_weight='balanced'` + PR-AUC optimisation | Accuracy misleading; F1-weighted is the primary metric |
+| **Primary model** | HistGradientBoostingClassifier | Handles missing values natively; strong OOT baseline (AUC-ROC 0.617) |
+
+### Stage 2 — Regression: log(price\_gns)
+
+Price regression trained on lots with observable prices, applied to the full offered universe.
+
+| Decision | Choice | Reason |
+|---|---|---|
+| **Training set** | sold\_to\_third\_party + vendor\_buyback (~17,914 rows) | Both have real price data; buyback price = reserve revealed |
+| **Inference set** | All offered lots (`inference_universe`, ~18,989 rows) | Counterfactual fair-value for unsold and bought-back lots |
+| **Target** | `log_price_gns` | Skewness correction; RMSE in log-scale ≈ RMSLE |
+| **Detrending** | `log_price_gns − log_year_median_price_prior` | Absorbs 78% nominal drift; re-added at prediction time |
+| **Primary model** | LightGBM / XGBoost | Gradient boosting for tabular data with temporal features |
+
+### Dataset Flow
+
+```
+Raw CSV (26,076 lots)
+  └─ 01_Data_Preparation  →  clean_data.parquet
+       └─ 02_EDA_Analysis  →  autumn_horses_modeling_ready.csv
+            └─ 03_FeatureEngineering  →  classification_ready   (Stage 1 train/eval)
+                                      →  regression_ready       (Stage 2 train/eval)
+                                      →  inference_universe     (Stage 2 predict all)
+                                           └─ 04_Modeling  →  predictions + SHAP
+```
 
 ---
 
 ## 4. Dataset & Analytical Universe
 
-The raw dataset covers **26,076 catalogued horses** across 17 editions. Four distinct sale outcomes are defined and treated separately:
-
-| Outcome | N | % | Treatment |
+| Outcome | N | % of total | Treatment |
 |---|---|---|---|
-| Sold to third party | 16,531 | 63.4% | Primary regression target |
-| Withdrawn (before ring) | 7,081 | 27.2% | **Excluded** from analytical universe (`df_offered`) |
-| Vendor buyback | 1,383 | 5.3% | **Included** as sold — real transacted price exists; exclusion would bias the lower tail downward |
-| Unsold on the day | 1,081 | 4.1% | Included in classification target, excluded from regression |
+| Sold to third party | 16,531 | 63.4% | Stage 1 positive class · Stage 2 training ✅ |
+| Withdrawn before ring | 7,081 | 27.2% | **Excluded** from all modelling universes |
+| Vendor buyback | 1,383 | 5.3% | Stage 1 negative class · Stage 2 training ✅ (reserve price revealed) |
+| Not sold on the day | 1,081 | 4.1% | Stage 1 negative class · Stage 2 inference only (price predicted) |
 
-> **Note on vendor buybacks**: rows with `price_gns` populated but `sold_to_third_party == False` are intentional — these are vendor buybacks treated as sales. This is a deliberate methodological decision, not a data quality issue.
+**On vendor buybacks in the regression training set:** the `vendor_buyback` flag is retained in `regression_ready` to enable an ablation study in `04_Modeling` (train with vs. without buybacks and compare OOT RMSE). The buyback price represents the vendor's reserve — a systematic upper bound on what the market was willing to pay — so its effect on the regression should be assessed empirically.
 
 ---
 
-## 5. Repository Structure
+## 5. Feature Engineering Decisions
+
+| EDA Conclusion | Implementation | Notes |
+|---|---|---|
+| Day 1–2 premium (stable post-Brexit) | `day`, `day_normalized`, `intraday_position`, `is_prime_time` | Temporal normalisation for 4- vs 5-day editions |
+| Sire quality signal | `sire_target_enc`, `sire_global_median_gns`, `sire_career_stage`, `sire_premium_ratio` | M-estimate encoding with expanding window (anti-leakage) |
+| Consignor reputation | `consignor_target_enc`, `consignor_volume`, `consignor_price_tier`, `consignor_sale_rate_enc` | Root-entity normalisation (removes Ltd, Racing, etc.) |
+| Macro context | `gbp_eur_rate`, `boe_base_rate`, `year_*_prior` | LOO expanding window to prevent temporal leakage |
+| Colour, foaled month — noise | Excluded from feature sets | Marginal effect <5%; captured by other variables |
+| Sire-dam combo — leakage risk | Excluded from regression; novelty proxy in classification | 90%+ singletons |
+
+**Target encoding strategy**: M-estimate with expanding temporal window — each observation's encoding uses only data from years prior to its sale year. Global mean shrinkage factor `m=10` (price) / `m=20` (dam entity, high cardinality).
+
+**Feature Selection Baseline**:
+
+| Stage | Metric | Value | Threshold | Status |
+|---|---|---|---|---|
+| Classification (Stage 1) | AUC-ROC OOT | 0.617 | > 0.60 | ✅ |
+| Regression (Stage 2) | CV RMSE train | 1.085 | < 1.10 | ✅ |
+| Regression | OOT RMSE | 1.132 | — | ⚠️ drift |
+| Regression | OOT R² | 0.279 | — | ⚠️ drift |
+
+---
+
+## 6. Repository Structure
 
 ```text
 .
-├── 01_EDA.ipynb                        # EDA, feature engineering & conclusions
-├── 02_modeling.ipynb                   # Predictive modeling pipeline (in progress)
-├── data/                               # Ignored by git
-│   ├── raw/
-│   │   ├── Autumn Horses In Training Sale 2009-2025.csv
-│   │   └── STALLIONS_EUR.csv
+├── 01_Data_Preparation.ipynb       # Load, clean, define outcomes, export clean_data.parquet
+├── 02_EDA_Analysis.ipynb           # Exploratory analysis: market, pedigree, temporal dynamics
+├── 03_FeatureEngineering.ipynb     # Two-stage pipeline prep: feature engineering + 3 exports
+├── 04_Modeling.ipynb               # (in progress) Stage 1 classifier + Stage 2 regressor
+│
+├── src/
+│   └── data_prep.py                # Shared utilities: parsing, bootstrap CI, macro data
+│
+├── data/                           # Excluded from git (see .gitignore)
+│   ├── Autumn Horses In Training Sale 2009-2024.csv
 │   └── processed/
-│       ├── autumn_horses_modeling_ready.csv
-│       ├── autumn_horses_feature_roles.csv
-│       └── top15_sires_enriched.csv
-├── 01_EDA_files/                       # Exported plots from EDA notebook
+│       ├── clean_data.parquet                  # Output of 01
+│       ├── autumn_horses_modeling_ready.csv    # Output of 02
+│       ├── classification_ready.{csv,parquet}  # Output of 03 — Stage 1
+│       ├── regression_ready.{csv,parquet}      # Output of 03 — Stage 2 training
+│       └── inference_universe.{csv,parquet}    # Output of 03 — Stage 2 prediction
+│
+├── outputs/                        # Plots exported from EDA notebook
+├── scripts/                        # Utility scripts
 ├── requirements.txt
-└── thesis_memory/                      # Final document drafts (ignored by git)
+└── thesis_memory/                  # Thesis drafts (excluded from git)
 ```
 
 ---
 
-## 6. Development Setup
+## 7. Development Setup
 
-This project uses `uv` for reproducible and fast environment management.
+This project uses `uv` for reproducible environment management.
 
 ```bash
-# 1. Create virtual environment
+# Create and activate virtual environment
 uv venv .venv
+source .venv/bin/activate       # macOS / Linux
+.venv\Scripts\activate          # Windows
 
-# 2. Activate
-source .venv/bin/activate  # Linux/macOS
-.venv\Scripts\activate     # Windows
-
-# 3. Install dependencies
+# Install dependencies
 uv pip install -r requirements.txt
 ```
 
-**Key dependencies**: `pandas`, `numpy`, `matplotlib`, `seaborn`, `scipy`, `statsmodels`, `scikit-learn`, `category_encoders`, `shap`, `catboost`, `onspy`
+**Key dependencies**: `pandas`, `numpy`, `matplotlib`, `seaborn`, `scipy`, `statsmodels`,
+`scikit-learn`, `lightgbm`, `shap`, `onspy`
+
+**Notebook execution order**: `01` → `02` → `03` → `04`  
+Each notebook reads from `data/processed/` and writes back to it.
 
 ---
 
-## 7. Modeling Strategy (Planned)
+## 8. Modeling Roadmap (`04_Modeling.ipynb`)
 
-| Decision | Strategy | Reason |
-|---|---|---|
-| **Problem framing** | Two-stage: classify → regress | Unsold lots have no price |
-| **Price target** | `log_price_gns` | Skewness 6.98 raw vs 0.03 in log |
-| **Validation** | Temporal split 2009–2021 / 2022–2025 | Market drift makes k-fold optimistic |
-| **Strongest features** | `day`, `sex`, `sale_year`, `lot_norm` | Largest permutation-test gaps; no leakage |
-| **High-cardinality entities** | Target encoding + LOO regularization | 997/840 levels; ~90%/70% rotation between periods |
-| **Inflation** | `price_real_gns` for temporal analysis; `price_gns` for cross-sectional models | Nominal +60%, real +2% over 2009–2025 |
-| **Leaky variables** | Exclude `purchaser`, `sale_outcome`, `price_euros` | Not available at prediction time |
+- **Stage 1**: HistGradientBoostingClassifier → probability calibration (Platt / Isotonic) → threshold optimisation by F1-weighted
+- **Stage 2**: LightGBM / XGBoost → temporal detrending of target → OOT evaluation with and without market adjustment
+- **Ablation**: regression with vs. without vendor buybacks in training set
+- **Explainability**: SHAP values for both stages; `day` flagged as partially encoding latent quality
+- **Final metrics**: MAPE, RMSE in GNS scale, prediction interval calibration
 
 ---
 
