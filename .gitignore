@@ -8,8 +8,9 @@
 .claude/*
 .gemini/*
 .antigravity/*
-tasks
-wiki
+mlruns/
+models/*.pkl
+models/*.joblib
 CLAUDE.md
 .opencode/*
 .idea/*
