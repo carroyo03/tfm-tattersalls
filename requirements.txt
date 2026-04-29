@@ -17,3 +17,10 @@ fastparquet
 scikit-learn
 yfinance
 beautifulsoup4
+
+# Modeling / MLflow / Hydra
+mlflow>=2.12
+optuna>=3.6
+optuna-integration[mlflow]
+catboost>=1.2
+shap>=0.45
