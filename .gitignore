@@ -21,3 +21,4 @@ AGENTS*
 *DS*
 .ipynb_checkpoints/
 .continue
+notebooks/*info/*
