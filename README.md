@@ -2,9 +2,6 @@
 **Master's Thesis (TFM) — Master in Big Data Science & Artificial Intelligence**  
 *Universidad de Navarra · idealista*
 
-> **Status**: Data Preparation ✅ · EDA ✅ · Feature Engineering ✅ · Modelling 🔄 in progress  
-> This repository contains code and reproducible analysis only. The final thesis document is submitted separately.
-
 ---
 
 ## 1. Overview & Research Focus
