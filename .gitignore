@@ -1,24 +1,82 @@
-.venv
-0*.md
-01*files
-*cache*
-.vscode/*
-.kiro/*
-.aiassistant/*
-.claude/*
-.gemini/*
-.antigravity/*
-mlruns/
+# ── Virtual environments ──────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+.env
+
+# ── Python artefacts ─────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Jupyter ───────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+# Inline figure exports from nbconvert (stored in outputs/ instead)
+notebooks/*_files/
+
+# ── Notebook artefacts ────────────────────────────────────────────────────────
+notebooks/mlruns/
+notebooks/best_run_ids.json
+
+# ── Data (too large / sensitive for version control) ──────────────────────────
+data/
+# Exception: keep the directory and README stubs if they exist
+!data/.gitkeep
+!data/README.md
+
+# ── Model artefacts (MLflow manages these) ────────────────────────────────────
 models/*.pkl
 models/*.joblib
-CLAUDE.md
-.opencode/*
-.idea/*
-thesis_memory/*
-data/*
-logs/*
-AGENTS*
-*DS*
-.ipynb_checkpoints/
+models/*.cbm
+models/*.bin
+mlruns/
+catboost_info/
+notebooks/catboost_info/
+
+# ── Thesis document (submitted separately) ────────────────────────────────────
+thesis_memory/
+
+# Tasks
+tasks/
+# ── IDE / editor configs ──────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# ── AI assistant private configs (not project code) ──────────────────────────
+.claude/
+.kiro/
+.aiassistant/
+.gemini/
+.antigravity/
+.opencode/
 .continue
-notebooks/*info/*
+.agents/
+
+# ── Private project contract (AGENTS.md contains supervisor context) ─────────
+AGENTS.md
+
+# ── Testing / linting caches ─────────────────────────────────────────────────
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ── Raw experimental artefacts ───────────────────────────────────────────────
+raw/
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+logs/
+*.log
+
+# ── OS artefacts ─────────────────────────────────────────────────────────────
+Thumbs.db

@@ -117,27 +117,41 @@ Raw CSV (26,076 lots)
 
 ```text
 .
-├── 01_Data_Preparation.ipynb       # Load, clean, define outcomes, export clean_data.parquet
-├── 02_EDA_Analysis.ipynb           # Exploratory analysis: market, pedigree, temporal dynamics
-├── 03_FeatureEngineering.ipynb     # Two-stage pipeline prep: feature engineering + 3 exports
-├── 04_Modeling.ipynb               # (in progress) Stage 1 classifier + Stage 2 regressor
+├── notebooks/
+│   ├── 01_Data_Preparation.ipynb       # Load, clean, define outcomes, export clean_data.parquet
+│   ├── 02_EDA_Analysis.ipynb           # Exploratory analysis: market, pedigree, temporal dynamics
+│   ├── 03_FeatureEngineering.ipynb     # Two-stage pipeline prep: feature engineering + 3 exports
+│   ├── 04_Modeling.ipynb               # Stage 1 classifier + Stage 2 regressor
+│   └── 05_Model_Audit.ipynb            # Model audit: fairness, calibration, SHAP, RNA paradox
 │
 ├── src/
-│   └── data_prep.py                # Shared utilities: parsing, bootstrap CI, macro data
+│   ├── data_prep.py                    # Data loading, cleaning, parsing, bootstrap CI
+│   ├── features.py                     # Feature engineering utilities
+│   ├── modeling.py                     # Model training & hyperparameter tuning
+│   ├── evaluation.py                   # Discrimination, calibration, residuals, drift metrics
+│   ├── audit.py                        # Fairness slices, disparity analysis
+│   ├── sensors.py                      # Temporal split validation, leakage checks, invariants
+│   ├── save_models.py                  # MLflow model persistence
+│   └── ablation_vendor_buybacks.py     # Stage 2 ablation: with vs. without buybacks
 │
-├── data/                           # Excluded from git (see .gitignore)
-│   ├── Autumn Horses In Training Sale 2009-2024.csv
-│   └── processed/
-│       ├── clean_data.parquet                  # Output of 01
-│       ├── autumn_horses_modeling_ready.csv    # Output of 02
-│       ├── classification_ready.{csv,parquet}  # Output of 03 — Stage 1
-│       ├── regression_ready.{csv,parquet}      # Output of 03 — Stage 2 training
-│       └── inference_universe.{csv,parquet}    # Output of 03 — Stage 2 prediction
+├── tests/
+│   └── test_smoke.py                   # Smoke tests for evaluation and audit modules
 │
-├── outputs/                        # Plots exported from EDA notebook
-├── scripts/                        # Utility scripts
+├── tasks/
+│   ├── todo.md                         # Active task tracking (per-session)
+│   └── lessons.md                      # Lessons learned log
+│
+├── outputs/
+│   ├── analyses/                       # CSVs, parquets from audit and ablation runs
+│   ├── figures/                        # All figures (EDA, audit) — PDF + PNG
+│   ├── reports/                        # Auto-generated reports
+│   └── memo_defensa/                   # Defence presentation materials
+│
+├── models/                             # Trained model artifacts (.joblib via MLflow)
+├── data/                               # Raw CSVs + processed parquets (gitignored)
+├── raw/                                # Experimental notebooks, papers, design decisions
 ├── requirements.txt
-└── thesis_memory/                  # Thesis drafts (excluded from git)
+└── README.md
 ```
 
 ---
@@ -152,25 +166,47 @@ uv venv .venv
 source .venv/bin/activate       # macOS / Linux
 .venv\Scripts\activate          # Windows
 
-# Install dependencies
+# Install dependencies (recommended — resolves all extras correctly)
+uv sync
+
+# Alternative: pip-based install
 uv pip install -r requirements.txt
 ```
 
 **Key dependencies**: `pandas`, `numpy`, `matplotlib`, `seaborn`, `scipy`, `statsmodels`,
-`scikit-learn`, `lightgbm`, `shap`, `onspy`
+`scikit-learn`, `lightgbm`, `optuna`, `optuna-integration[mlflow]`, `mlflow`, `shap`
 
-**Notebook execution order**: `01` → `02` → `03` → `04`  
+**Notebook execution order**: `01` → `02` → `03` → `04` → `05`  
 Each notebook reads from `data/processed/` and writes back to it.
 
 ---
 
-## 8. Modeling Roadmap (`04_Modeling.ipynb`)
+## 8. Modeling Roadmap
 
-- **Stage 1**: HistGradientBoostingClassifier → probability calibration (Platt / Isotonic) → threshold optimisation by F1-weighted
-- **Stage 2**: LightGBM / XGBoost → temporal detrending of target → OOT evaluation with and without market adjustment
-- **Ablation**: regression with vs. without vendor buybacks in training set
-- **Explainability**: SHAP values for both stages; `day` flagged as partially encoding latent quality
-- **Final metrics**: MAPE, RMSE in GNS scale, prediction interval calibration
+- **`04_Modeling.ipynb`**: HistGradientBoostingClassifier (Stage 1) → probability calibration (Platt / Isotonic) → threshold optimisation by F1-weighted; LightGBM / XGBoost (Stage 2) → temporal detrending → OOT evaluation; ablation with vs. without vendor buybacks; SHAP values for both stages
+- **`05_Model_Audit.ipynb`**: Fairness slices by sex, consignor tier, and sale day; calibration curves; SHAP global/local explainability; RNA (Regression Naming Artefact) paradox analysis; temporal gap assessment between training and deployment window
+
+---
+
+## Citation
+
+If you use this work, please cite:
+
+```bibtex
+@mastersthesis{arroyo2025predictive,
+  title  = {Predictive Modelling for Horse Auction Prices},
+  author = {Arroyo Lorenzo, Carlos G.},
+  school = {Universidad de Navarra},
+  year   = {2026},
+  note   = {Master's Thesis — Big Data Science \& AI, in collaboration with idealista}
+}
+```
+
+---
+
+## License
+
+This project is released under the [MIT License](LICENSE).
 
 ---
 
