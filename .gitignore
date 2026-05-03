@@ -80,3 +80,6 @@ logs/
 
 # ── OS artefacts ─────────────────────────────────────────────────────────────
 Thumbs.db
+
+outputs/analyses/conclusions.md
+outputs/figures/audit/*.pdf

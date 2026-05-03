@@ -7,6 +7,7 @@ from xgboost import XGBClassifier, XGBRegressor
 from lightgbm import LGBMClassifier, LGBMRegressor
 from catboost import CatBoostClassifier, CatBoostRegressor
 from sklearn.linear_model import LogisticRegression, Ridge
+from src.constants import TRAIN_MAX_YEAR, VAL_MIN_YEAR, VAL_MAX_YEAR
 
 # ── Configuration ──
 DATA_DIR = "data/processed"
@@ -47,15 +48,11 @@ def load_data():
     features_reg = feat_doc[feat_doc["model"] == "regression"]["feature"].tolist()
     
     # Temporal Splits (matching 04_Modeling.ipynb)
-    TRAIN_MAX = 2017
-    VAL_MIN = 2018
-    VAL_MAX = 2021
-    
-    clf_train = clf_df[clf_df['sale_year'] <= TRAIN_MAX].copy()
-    clf_val   = clf_df[(clf_df['sale_year'] >= VAL_MIN) & (clf_df['sale_year'] <= VAL_MAX)].copy()
-    
-    reg_train = reg_df[reg_df['sale_year'] <= TRAIN_MAX].copy()
-    reg_val   = reg_df[(reg_df['sale_year'] >= VAL_MIN) & (reg_df['sale_year'] <= VAL_MAX)].copy()
+    clf_train = clf_df[clf_df['sale_year'] <= TRAIN_MAX_YEAR].copy()
+    clf_val   = clf_df[(clf_df['sale_year'] >= VAL_MIN_YEAR) & (clf_df['sale_year'] <= VAL_MAX_YEAR)].copy()
+
+    reg_train = reg_df[reg_df['sale_year'] <= TRAIN_MAX_YEAR].copy()
+    reg_val   = reg_df[(reg_df['sale_year'] >= VAL_MIN_YEAR) & (reg_df['sale_year'] <= VAL_MAX_YEAR)].copy()
     
     return clf_train, clf_val, reg_train, reg_val, features_clf, features_reg
 
