@@ -129,14 +129,21 @@ class TestSensors(unittest.TestCase):
 
     def test_universe_consistency_ok(self):
         from src.sensors import universe_consistency_check
-        univ = pd.DataFrame({"sale_year": [2022, 2022, 2023], "day": [1, 2, 1], "lot": [10, 20, 10]})
-        reg  = pd.DataFrame({"sale_year": [2022, 2022],       "day": [1, 2],    "lot": [10, 20]})
+        univ = pd.DataFrame({"lot_uid": ["2022-1-10", "2022-2-20", "2023-1-10"]})
+        reg  = pd.DataFrame({"lot_uid": ["2022-1-10", "2022-2-20"]})
         universe_consistency_check(univ, reg)  # must not raise
 
     def test_universe_consistency_missing_id(self):
         from src.sensors import universe_consistency_check
-        univ = pd.DataFrame({"sale_year": [2022], "day": [1], "lot": [10]})
-        reg  = pd.DataFrame({"sale_year": [2022, 2022], "day": [1, 2], "lot": [10, 99]})
+        univ = pd.DataFrame({"lot_uid": ["2022-1-10"]})
+        reg  = pd.DataFrame({"lot_uid": ["2022-1-10", "2022-2-99"]})
+        with self.assertRaises(AssertionError):
+            universe_consistency_check(univ, reg)
+
+    def test_universe_consistency_duplicate_id(self):
+        from src.sensors import universe_consistency_check
+        univ = pd.DataFrame({"lot_uid": ["2022-1-10", "2022-1-10"]})
+        reg  = pd.DataFrame({"lot_uid": ["2022-1-10"]})
         with self.assertRaises(AssertionError):
             universe_consistency_check(univ, reg)
 

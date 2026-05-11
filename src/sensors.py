@@ -180,13 +180,29 @@ def encoding_leakage_check(
 def universe_consistency_check(
     inference_universe: pd.DataFrame,
     regression_ready: pd.DataFrame,
-    id_cols: Sequence[str] = ("sale_year", "day", "lot"),
+    id_cols: Sequence[str] = ("lot_uid",),
 ) -> None:
     """Assert that all regression_ready IDs exist in the inference_universe.
 
     Verifies: |inference_universe| >= |regression_ready| and
     IDs(regression_ready) ⊂ IDs(inference_universe).
     """
+    id_cols = list(id_cols)
+    missing = [
+        col for col in id_cols
+        if col not in inference_universe.columns or col not in regression_ready.columns
+    ]
+    if missing:
+        fallback = ["sale_name", "sale_year", "day", "lot"]
+        if all(col in inference_universe.columns and col in regression_ready.columns for col in fallback):
+            id_cols = fallback
+        else:
+            raise AssertionError(
+                "Universe consistency cannot be checked with a stable key. "
+                f"Missing requested ID columns: {missing}. Add 'lot_uid' or preserve "
+                "('sale_name', 'sale_year', 'day', 'lot') in all model datasets."
+            )
+
     if len(inference_universe) < len(regression_ready):
         raise AssertionError(
             f"Universe consistency violated: inference_universe has "
@@ -194,7 +210,17 @@ def universe_consistency_check(
             f"{len(regression_ready)} rows."
         )
 
-    id_cols = list(id_cols)
+    for name, frame in [
+        ("inference_universe", inference_universe),
+        ("regression_ready", regression_ready),
+    ]:
+        n_dup = int(frame.duplicated(id_cols).sum())
+        if n_dup:
+            raise AssertionError(
+                f"Universe consistency violated: {name} has {n_dup} duplicate "
+                f"rows for ID columns {id_cols}. Use a unique lot identifier."
+            )
+
     univ_ids = set(map(tuple, inference_universe[id_cols].values.tolist()))
     reg_ids = set(map(tuple, regression_ready[id_cols].values.tolist()))
 

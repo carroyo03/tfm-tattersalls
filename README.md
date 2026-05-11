@@ -13,7 +13,7 @@ This project develops a two-stage predictive pipeline for the *Tattersalls Autum
 
 The core challenges driving methodological choices:
 
-- **Selection bias** — prices are only observed for lots that sell or are bought back. Training a regression on sold lots only produces biased coefficient estimates (Heckman, 1979). Vendor buybacks (whose reserve prices are revealed) are included in the regression training set to partially mitigate this.
+- **Selection bias** — prices are only cleanly observed for lots sold to third parties. Vendor buybacks/RNAs indicate that the reserve was not met, so they are analysed as non-transactions rather than treated as realised market prices in the final regression target.
 - **Temporal drift** — 17 years of macroeconomic shift (+78% nominal prices, GBP/EUR volatility, BoE rate cycles) require strict temporal validation and a detrended regression target.
 - **High-cardinality entities** — ~997 unique sires, ~840 consignors, with ~90% and ~70% rotation between early (2009–2015) and recent (2021–2025) periods. Cold-start risk at inference time.
 - **Log-normal price distribution** — skewness 6.98 in raw scale, 0.03 in log scale. Regression target is always `log_price_gns`.
@@ -53,8 +53,8 @@ Price regression trained on lots with observable prices, applied to the full off
 
 | Decision | Choice | Reason |
 |---|---|---|
-| **Training set** | sold\_to\_third\_party + vendor\_buyback (~17,914 rows) | Both have real price data; buyback price = reserve revealed |
-| **Inference set** | All offered lots (`inference_universe`, ~18,989 rows) | Counterfactual fair-value for unsold and bought-back lots |
+| **Training set** | sold\_to\_third\_party only (~16.5k rows) | Realised third-party market price; excludes reserve-not-met/buyback observations |
+| **Inference set** | All offered lots (`inference_universe`) | Counterfactual fair-value for sold, buyback, and not-sold lots |
 | **Target** | `log_price_gns` | Skewness correction; RMSE in log-scale ≈ RMSLE |
 | **Detrending** | `log_price_gns − log_year_median_price_prior` | Absorbs 78% nominal drift; re-added at prediction time |
 | **Final model** | Stacking ensemble (Ridge · LGBM · XGBoost · CatBoost) | Ridge baseline RMSE_log 1.297 → stacking **1.142** (−11.7%); R²_log **0.250** OOT |
@@ -80,10 +80,10 @@ Raw CSV (26,076 lots)
 |---|---|---|---|
 | Sold to third party | 16,531 | 63.4% | Stage 1 positive class · Stage 2 training ✅ |
 | Withdrawn before ring | 7,081 | 27.2% | **Excluded** from all modelling universes |
-| Vendor buyback | 1,383 | 5.3% | Stage 1 negative class · Stage 2 training ✅ (reserve price revealed) |
+| Vendor buyback | 1,383 | 5.3% | Stage 1 negative class · Stage 2 inference/audit only (reserve not met) |
 | Not sold on the day | 1,081 | 4.1% | Stage 1 negative class · Stage 2 inference only (price predicted) |
 
-**On vendor buybacks in the regression training set:** the `vendor_buyback` flag is retained in `regression_ready` to enable an ablation study in `04_Modeling` (train with vs. without buybacks and compare OOT RMSE). The buyback price represents the vendor's reserve — a systematic upper bound on what the market was willing to pay — so its effect on the regression should be assessed empirically.
+**On vendor buybacks in the regression target:** the final specification treats buybacks/RNAs as non-transactions. They are retained in the broader inference/audit universe, but excluded from Stage 2 price training because a reserve-not-met amount is not equivalent to a realised third-party hammer price.
 
 ---
 
@@ -127,12 +127,12 @@ Raw CSV (26,076 lots)
 │
 ├── src/
 │   ├── data_prep.py                    # Data loading, cleaning, parsing, bootstrap CI
-│   ├── features.py                     # Feature engineering utilities
-│   ├── modeling.py                     # Model training & hyperparameter tuning
 │   ├── evaluation.py                   # Discrimination, calibration, residuals, drift metrics
 │   ├── audit.py                        # Fairness slices, disparity analysis
 │   ├── sensors.py                      # Temporal split validation, leakage checks, invariants
-│   ├── save_models.py                  # MLflow model persistence
+│   ├── model_wrappers.py               # Persist exact stacked final models
+│   ├── final_audit.py                  # Reproducibility gate for final artefacts
+│   ├── save_models.py                  # Legacy model persistence helper
 │   └── ablation_vendor_buybacks.py     # Stage 2 ablation: with vs. without buybacks
 │
 ├── tests/
@@ -194,7 +194,7 @@ Each notebook reads from `data/processed/` and writes back to it.
 
 **RNA paradox**: 2,462 RNA lots (13% of offered universe). Permutation test sold vs. RNA expected_price: diff = +579 GNS, **p = 0.1212** (not significant). 482 historically high-value RNAs (expected_price > 30,190 GNS) identified — Geldings 59%, concentrated in Days 2–3.
 
-**Ablation (vendor buybacks)**: Including buybacks in Stage 2 training adds 1,383 observations; marginal impact on global RMSE but improves encoding stability for high-cardinality sires and consignors (mean `sire_target_enc` shift = 0.034 log-units).
+**Ablation (vendor buybacks)**: Buybacks are kept as a sensitivity/audit topic because they expose reserve behaviour and affect high-cardinality encodings, but the final price model uses sold-to-third-party lots only.
 
 **Leakage audit**: PASSED — sensors validated no temporal leakage in target encoding, macro features, or train/OOT splits.
 
