@@ -1,4 +1,4 @@
-"""Fairness slicing and audit aggregators — called from 05_Model_Audit.ipynb."""
+"""Structural subgroup disparity analysis slicing and audit aggregators — called from 05_Model_Audit.ipynb."""
 from __future__ import annotations
 
 from typing import Callable, Optional

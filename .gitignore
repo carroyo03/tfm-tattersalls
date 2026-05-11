@@ -31,13 +31,13 @@ data/
 !data/README.md
 
 # ── Model artefacts (MLflow manages these) ────────────────────────────────────
-models/*.pkl
-models/*.joblib
-models/*.cbm
-models/*.bin
+models/
 mlruns/
 catboost_info/
 notebooks/catboost_info/
+
+# ── Outputs (all regenerable from notebooks) ─────────────────────────────────
+outputs/
 
 # ── Thesis document (submitted separately) ────────────────────────────────────
 thesis_memory/
@@ -80,6 +80,3 @@ logs/
 
 # ── OS artefacts ─────────────────────────────────────────────────────────────
 Thumbs.db
-
-outputs/analyses/conclusions.md
-outputs/figures/audit/*.pdf

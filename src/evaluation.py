@@ -186,8 +186,9 @@ def regression_metrics(
     for _ in range(n_boot):
         idx = rng.integers(0, n, size=n)
         boot_rmses.append(np.sqrt(mean_squared_error(yt[idx], yp[idx])))
-    out["rmse_log_ci_lo"] = float(np.quantile(boot_rmses, 0.025))
-    out["rmse_log_ci_hi"] = float(np.quantile(boot_rmses, 0.975))
+    if boot_rmses:
+        out["rmse_log_ci_lo"] = float(np.quantile(boot_rmses, 0.025))
+        out["rmse_log_ci_hi"] = float(np.quantile(boot_rmses, 0.975))
 
     if gns_scale:
         price_true = np.exp(yt)
@@ -263,7 +264,11 @@ def temporal_drift(
 
     result["baseline"] = base_val
     result["pct_change"] = (result["metric"] - base_val) / (abs(base_val) + 1e-9)
-    result["drift_flag"] = result["pct_change"].abs() > drift_threshold
+    result["drift_flag"] = result["pct_change"] < -drift_threshold
+    result["drift_direction"] = np.where(
+        result["pct_change"] < -drift_threshold, "degradation",
+        np.where(result["pct_change"] > drift_threshold, "improvement", "stable"),
+    )
     return result
 
 
