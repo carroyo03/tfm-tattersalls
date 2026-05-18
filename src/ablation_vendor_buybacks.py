@@ -34,9 +34,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 # ── Config ────────────────────────────────────────────────────────────────────
-DATA_DIR   = Path("data/processed")
-OUT_DIR    = Path("outputs/analyses")
-FIG_DIR    = Path("outputs/figures/audit")
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DATA_DIR   = PROJECT_ROOT / "data" / "processed"
+OUT_DIR    = PROJECT_ROOT / "outputs" / "analyses"
+FIG_DIR    = PROJECT_ROOT / "outputs" / "figures" / "audit"
 M_PRICE    = 10.0   # M-estimate regularisation for price encoding (matches FE notebook)
 # (entity_col_in_clean_data, encoded_col_label)
 ENTITY_COLS = [
@@ -48,6 +49,16 @@ TARGET_COL = "log_price_gns"
 
 os.makedirs(OUT_DIR, exist_ok=True)
 os.makedirs(FIG_DIR, exist_ok=True)
+
+
+def _load_clean_data() -> pd.DataFrame:
+    """Load the cleaned dataset from the project root, regardless of cwd."""
+    clean_path = DATA_DIR / "clean_data.parquet"
+    if not clean_path.exists():
+        raise FileNotFoundError(
+            f"Missing cleaned dataset: {clean_path}. Run notebooks/01_Data_Preparation.ipynb first."
+        )
+    return pd.read_parquet(clean_path)
 
 
 def m_estimate_global(entity_counts: pd.Series, entity_means: pd.Series,
@@ -73,7 +84,7 @@ def compute_encodings(df_base: pd.DataFrame, entity_col: str) -> pd.DataFrame:
 
 def run_ablation() -> dict:
     """Compare encodings computed with vs without vendor buybacks."""
-    clean = pd.read_parquet(DATA_DIR / "clean_data.parquet")
+    clean = _load_clean_data()
 
     # Replicate feature engineering Cell 10: compute log_price_gns for buybacks
     vb_mask = (clean["vendor_buyback"] == True) & clean["price_gns"].notna()
