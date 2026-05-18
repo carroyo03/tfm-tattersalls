@@ -44,13 +44,14 @@ def temporal_split_validator(
 
 def encoding_leakage_check(
     df: pd.DataFrame,
-    entity_encoded_pairs: Sequence[tuple[str, str]],
+    entity_encoded_pairs: Sequence[tuple[str, str] | tuple[str, str, float]],
     year_col: str = "sale_year",
     target_col: str | None = None,
     m: float = 10.0,
     sample_n: int = 500,
     tol: float = 1e-6,
     random_state: int = 42,
+    encoding_mask: pd.Series | None = None,
 ) -> None:
     """Verify that target-encoded columns only use data from prior years.
 
@@ -73,25 +74,34 @@ def encoding_leakage_check(
     entity_encoded_pairs:
         List of ``(entity_col, encoded_col)`` tuples, e.g.
         ``[("sire", "sire_target_enc"), ("damsire", "damsire_target_enc")]``.
+        For pairs that use a different regularisation constant, pass a 3-tuple
+        ``(entity_col, encoded_col, pair_m)`` — the per-pair ``pair_m`` overrides
+        the global ``m`` for that entity.
     year_col:
         Column name for the sale year.
     target_col:
         Target column used for encoding (e.g. ``"log_price_gns"``). When
         provided, enables the recomputation check.
     m:
-        Regularisation constant for the M-estimate (must match the value used
-        during feature engineering).
+        Default regularisation constant for the M-estimate. Overridden by
+        per-pair ``pair_m`` in 3-tuple entries.
     sample_n:
         Number of rows to sample for the (expensive) recomputation check.
     tol:
         Absolute tolerance for the recomputation comparison.
     random_state:
         Seed for the row sample.
+    encoding_mask:
+        Boolean mask indicating which rows were used as the encoding base
+        (e.g. ``df['sold_to_third_party'] == True`` for price encodings).
+        If None, all rows with a non-NaN target are used, which may include
+        vendor buyback prices and produce a different global mean than the
+        sold-only encoding base used during feature engineering.
     """
     missing_cols = [
         col
-        for entity_col, encoded_col in entity_encoded_pairs
-        for col in (entity_col, encoded_col)
+        for item in entity_encoded_pairs
+        for col in (item[0], item[1])
         if col not in df.columns
     ]
     if missing_cols:
@@ -100,12 +110,17 @@ def encoding_leakage_check(
             stacklevel=2,
         )
         entity_encoded_pairs = [
-            (e, enc)
-            for e, enc in entity_encoded_pairs
-            if e in df.columns and enc in df.columns
+            item for item in entity_encoded_pairs
+            if item[0] in df.columns and item[1] in df.columns
         ]
 
-    for entity_col, encoded_col in entity_encoded_pairs:
+    for item in entity_encoded_pairs:
+        if len(item) == 3:
+            entity_col, encoded_col, pair_m = item
+        else:
+            entity_col, encoded_col = item
+            pair_m = m
+
         # ── Check 1: no NaN ──────────────────────────────────────────────────
         n_nan = int(df[encoded_col].isna().sum())
         if n_nan > 0:
@@ -135,7 +150,14 @@ def encoding_leakage_check(
     if target_col is None or target_col not in df.columns:
         return
 
-    global_mean = float(df[target_col].mean())
+    # Determine encoding base: if encoding_mask is provided, use only those rows;
+    # otherwise use all rows with a non-NaN target (may include buyback prices).
+    encoding_base = df[encoding_mask] if encoding_mask is not None else df[target_col].notna()
+    if isinstance(encoding_base, pd.Series):
+        encoding_base = df[encoding_base]
+    encoding_base = encoding_base.dropna(subset=[target_col])
+
+    global_mean = float(encoding_base[target_col].mean())
     rng = np.random.default_rng(random_state)
     years = sorted(df[year_col].unique())
     # skip first year (no prior data to recompute from)
@@ -143,7 +165,13 @@ def encoding_leakage_check(
     sample_idx = rng.choice(len(eligible), size=min(sample_n, len(eligible)), replace=False)
     sample_df = eligible.iloc[sample_idx]
 
-    for entity_col, encoded_col in entity_encoded_pairs:
+    for item in entity_encoded_pairs:
+        if len(item) == 3:
+            entity_col, encoded_col, pair_m = item
+        else:
+            entity_col, encoded_col = item
+            pair_m = m
+
         if entity_col not in df.columns or encoded_col not in df.columns:
             continue
         if "sale_rate" in encoded_col:
@@ -156,17 +184,18 @@ def encoding_leakage_check(
             entity_val = row[entity_col]
             stored = float(row[encoded_col])
 
-            prior = df[df[year_col] < year_val]
+            prior = encoding_base[encoding_base[year_col] < year_val]
             if len(prior) == 0:
                 expected = global_mean
             else:
                 entity_prior = prior[prior[entity_col] == entity_val]
-                n = len(entity_prior)
+                entity_target = entity_prior[target_col].dropna()
+                n = len(entity_target)
                 if n == 0:
                     expected = global_mean
                 else:
-                    entity_mean = float(entity_prior[target_col].mean())
-                    expected = (n * entity_mean + m * global_mean) / (n + m)
+                    entity_mean = float(entity_target.mean())
+                    expected = (n * entity_mean + pair_m * global_mean) / (n + pair_m)
 
             if abs(stored - expected) > tol:
                 raise AssertionError(

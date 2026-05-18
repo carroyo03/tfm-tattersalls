@@ -24,6 +24,9 @@ notebooks/*_files/
 notebooks/mlruns/
 notebooks/best_run_ids.json
 
+# Local docs
+docs/
+
 # ── Data (too large / sensitive for version control) ──────────────────────────
 data/
 # Exception: keep the directory and README stubs if they exist
