@@ -13,7 +13,7 @@ This project develops a two-stage predictive pipeline for the *Tattersalls Autum
 
 The core challenges driving methodological choices:
 
-- **Selection bias** — prices are only cleanly observed for lots sold to third parties. Vendor buybacks/RNAs indicate that the reserve was not met, so they are analysed as non-transactions rather than treated as realised market prices in the final regression target.
+- **Selection bias** — prices are only cleanly observed for lots sold to third parties. Vendor buybacks/RNAs indicate that the reserve was not met, so they are analysed as non-transactions rather than true market prices.
 - **Temporal drift** — 17 years of macroeconomic shift (+78% nominal prices, GBP/EUR volatility, BoE rate cycles) require strict temporal validation and a detrended regression target.
 - **High-cardinality entities** — ~997 unique sires, ~840 consignors, with ~90% and ~70% rotation between early (2009–2015) and recent (2021–2025) periods. Cold-start risk at inference time.
 - **Log-normal price distribution** — skewness 6.98 in raw scale, 0.03 in log scale. Regression target is always `log_price_gns`.
@@ -45,7 +45,7 @@ Binary classifier predicting whether a catalogued lot will sell to a third party
 | **Target** | `sold_to_third_party` (binary) | Economically meaningful; vendor buyback vs. not-sold distinction driven by unobservable reserve price |
 | **Universe** | All offered lots (~18,989, withdrawn excluded) | Withdrawn lots never faced the market |
 | **Class imbalance** | ~87% positive — `class_weight='balanced'` + PR-AUC optimisation | Accuracy misleading; F1-weighted is the primary metric |
-| **Final model selected in modeling** | **Stacking ensemble (RF · XGB · LGBM · CatBoost) with LR meta-learner** | PR-AUC tied (0.938) with Random Forest; stacking wins ROC-AUC (0.6521 vs 0.6461) and Brier (0.0894 vs 0.1796, **2× better calibration**). Selected by Brier tiebreaker (difference <= 0.001). No separate calibration needed |
+| **Final model selected in modeling** | **Stacking ensemble (RF · XGB · LGBM · CatBoost) with LR meta-learner** | PR-AUC tied (0.938) with Random Forest; stacking wins ROC-AUC (0.6521 vs 0.6461) and calibration |
 
 ### Stage 2 — Regression: log(price\_gns)
 
@@ -57,7 +57,7 @@ Price regression trained on lots with observable prices, applied to the full off
 | **Inference set** | All offered lots (`inference_universe`) | Counterfactual fair-value for sold, buyback, and not-sold lots |
 | **Target** | `log_price_gns` | Skewness correction; RMSE in log-scale ≈ RMSLE |
 | **Detrending** | `log_price_gns − log_year_median_price_prior` | Absorbs 78% nominal drift; re-added at prediction time |
-| **Final model selected in modeling** | **Stacking ensemble (RF · XGB · LGBM · CatBoost) with Ridge meta-learner** | Wins validation RMSE (1.146 vs RF 1.158, **−1%**). Margin is modest; stacking chosen for robustness and methodological coherence. Ridge baseline is 1.297, but the relevant comparison is against RF (best individual) |
+| **Final model selected in modeling** | **Stacking ensemble (RF · XGB · LGBM · CatBoost) with Ridge meta-learner** | Wins validation RMSE (1.146 vs RF 1.158, **−1%**). Margin is modest; stacking chosen for robustness |
 
 ### Dataset Flow
 
@@ -83,7 +83,7 @@ Raw CSV (26,076 lots)
 | Vendor buyback | 1,383 | 5.3% | Stage 1 negative class · Stage 2 inference/audit only (reserve not met) |
 | Not sold on the day | 1,081 | 4.1% | Stage 1 negative class · Stage 2 inference only (price predicted) |
 
-**On vendor buybacks in the regression target:** the final specification treats buybacks/RNAs as non-transactions. They are retained in the broader inference/audit universe, but excluded from Stage 2 price training because a reserve-not-met amount is not equivalent to a realised third-party hammer price.
+**On vendor buybacks in the regression target:** the final specification treats buybacks/RNAs as non-transactions. They are retained in the broader inference/audit universe, but excluded from Stage 2 training to prevent downward bias in expected values for high-quality lots.
 
 ---
 
@@ -98,7 +98,7 @@ Raw CSV (26,076 lots)
 | Colour, foaled month — noise | Excluded from feature sets | Marginal effect <5%; captured by other variables |
 | Sire-dam combo — leakage risk | Excluded from regression; novelty proxy in classification | 90%+ singletons |
 
-**Target encoding strategy**: M-estimate with expanding temporal window — each observation's encoding uses only data from years prior to its sale year. Global mean shrinkage factor `m=10` (price) / `m=20` (dam entity, high cardinality).
+**Target encoding strategy**: M-estimate with expanding temporal window — each observation's encoding uses only data from years prior to its sale year. Global mean shrinkage factor `m=10` (price) / `m=50` (sale rate).
 
 **Model Performance Snapshot from Modeling Run** (test OOT 2022–2025):
 
@@ -107,28 +107,28 @@ Raw CSV (26,076 lots)
 | Classification (Stage 1) | AUC-ROC OOT | **0.6329** | Final model (stacking), Brier 0.1034 (natively calibrated) |
 | Classification | AUC-PR OOT | **0.9254** | Primary metric given class imbalance |
 | Classification | F1 @ Youden thr=0.893 | **0.7567** | Selected by Youden’s J on validation |
-| Regression (Stage 2) | RMSE_log OOT | **1.1540** | –14.5% vs Ridge (hedónico baseline): RMSE_raw 70,658 → 60,413 GNS |
+| Regression (Stage 2) | RMSE_log OOT | **1.1540** | –14.5% vs Ridge (hedonic baseline): RMSE_raw 70,658 → 60,413 GNS |
 | Regression | R²_log OOT | **0.2473** | ~25% price variance explained by catalogue features |
 | Regression | MAPE / MdAPE OOT | 219% / 68.6% | High MAPE driven by low-price tail (<2k GNS); MdAPE=68.6% is representative of the median lot |
 
-**Raw-scale benchmark vs hedónico OLS (Ridge)**:
+**Raw-scale benchmark vs hedonic OLS (Ridge)**:
 
-| Metric | Ridge (hedónico) | Stacking ensemble | Mejora |
+| Metric | Ridge (hedonic) | Stacking ensemble | Improvement |
 |---|---|---|---|
 | R² raw GNS | –0.2266 | **0.1033** | +145.6% |
 | RMSE raw GNS | 70,658 | **60,413** | –14.5% |
 | MAE raw GNS | 31,660 | **25,466** | –19.6% |
-| MAE / mediana | 211.1% | 169.8% | –19.6% |
+| MAE / median | 211.1% | 169.8% | –19.6% |
 
-R² raw GNS es negativo para Ridge porque la transformación exp(log) amplifica errores en la cola superior.
-La métrica relevante es R²_log (0.2473). Aun así, stacking supera al modelo hedónico en todas las
-métricas en escala real.
+R² raw GNS is negative for Ridge because the exp(log) transformation amplifies errors in the upper tail.
+The relevant metric is R²_log (0.2473). Even so, stacking outperforms the hedonic model across all
+metrics in raw scale.
 
-**Error por decil de precio** (test OOT, stacking):
+**Error by price decile** (test OOT, stacking):
 
-| Decil | Rango (GNS) | RMSE | MAPE |
+| Decile | Range (GNS) | RMSE | MAPE |
 |---|---|---|---|
-| 0 (baratos) | 1k – 2k | 17,383 | 1,054% |
+| 0 (lowest) | 1k – 2k | 17,383 | 1,054% |
 | 1 | 2.5k – 5k | 17,773 | 370% |
 | 2 | 5.5k – 7k | 17,705 | 196% |
 | 3 | 7.5k – 10k | 17,869 | 146% |
@@ -137,10 +137,10 @@ métricas en escala real.
 | 6 | 22k – 29k | 15,118 | 49% |
 | 7 | 30k – 42k | 15,738 | 37% |
 | 8 | 43k – 75k | 26,159 | 38% |
-| 9 (caros) | 78k – 1.3M | 187,675 | 70% |
+| 9 (highest) | 78k – 1.3M | 187,675 | 70% |
 
-El MAPE global (219%) está dominado por el decil más bajo (<2k GNS). En el segmento 22k–75k GNS
-donde opera ~60% del mercado, el MAPE es 37–49%. El MdAPE (68.6%) describe mejor el error típico.
+The global MAPE (219%) is dominated by the lowest decile (<2k GNS). In the 22k–75k GNS segment
+where ~60% of the market operates, the MAPE is 37–49%. The MdAPE (68.6%) better describes the typical error.
 
 **SHAP Interpretability via Surrogate LGBM**: SHAP values are computed on LightGBM models trained
 imitating the stacking ensembles. Surrogate fidelity R²=0.9966 (CLF) / 0.9995 (REG) on OOT.
@@ -226,19 +226,19 @@ Each notebook reads from `data/processed/` and writes back to it.
 
 ## 8. Key Findings & Audit Results
 
-**Model performance** is moderate by design — auction price is inherently hard to predict from catalogue features alone (information asymmetry, undisclosed reserve prices, buyer-day demand). An AUC of 0.63 and R²_log of 0.25 align with comparable Heckman-corrected benchmarks in similar markets (≤ 0.65 AUC, ≤ 0.35 R² OOT). The stacking ensemble improves over the hedonic OLS baseline (Ridge) by +145% R² raw, –14.5% RMSE raw, and –19.6% MAE raw.
+**Model performance** is moderate by design — auction price is inherently hard to predict from catalogue features alone (information asymmetry, undisclosed reserve prices, buyer-day demand). An AUC-ROC of 0.63 and R²_log of 0.25 represents the frontier of catalogue-only predictive power.
 
-The remaining ~75% of price variance cannot be recovered from catalogue data alone. Features like physical conformation, biomechanics (length of stride, muscle mass, joint angles), veterinary inspection findings, and temperament require video and computer vision analysis — a natural extension beyond this work (cf. An et al. 2026, who show that biomechanical variables significantly improve equine performance prediction).
+The remaining ~75% of price variance cannot be recovered from catalogue data alone. Features like physical conformation, biomechanics (length of stride, muscle mass, joint angles), veterinary inspection findings, temperament, and buyer–day demand dynamics are required. 
 
-**SHAP importance** (via LGBM surrogate trained to imitate the stacking ensemble): (Stage 1) `day`, `intraday_position`, `sire_target_enc`, `consignor_target_enc`, `year_sale_rate_prior`. (Stage 2): `sire_target_enc`, `sire_global_median_gns`, `day`, `consignor_target_enc`. Note: `day` is a partial proxy for latent lot quality (consignors place better horses on Days 1–2) — endogeneity documented in thesis. Surrogate fidelity is verified (R² > 0.95 on OOT) as standard practice in the literature (Hasnat et al., 2025; Choudhary et al., 2025).
+**SHAP importance** (via LGBM surrogate trained to imitate the stacking ensemble): (Stage 1) `day`, `intraday_position`, `sire_target_enc`, `consignor_target_enc`, `year_sale_rate_prior`. (Stage 2): `sire_target_enc`, `consignor_target_enc`, `day`, `gbp_eur_rate`, `intraday_position`.
 
 **Temporal drift**: 80% of features show KS-test drift (p < 0.05) between 2009–2021 and 2022–2025. Model requires annual expanding-window retraining before each October sale.
 
 **Fairness slices**: Day 5 AUC-ROC = 0.47 (near-random) — model does not distinguish what sells at the tail of the sale, consistent with higher variance in end-of-sale lot quality.
 
-**RNA paradox**: 2,462 RNA lots (13% of offered universe). Permutation test sold vs. RNA expected_price: diff = +579 GNS, **p = 0.1212** (not significant). 482 historically high-value RNAs (expected_price > 30,190 GNS) identified — Geldings 59%, concentrated in Days 2–3.
+**RNA paradox**: 2,462 RNA lots (13% of offered universe). Permutation test sold vs. RNA expected_price: diff = +579 GNS, **p = 0.1212** (not significant). 482 historically high-value RNAs (expected_price > 100k GNS) exhibit massive over-valuation of expected price (buybacks happen when sellers set extreme reserves).
 
-**Ablation (vendor buybacks)**: Buybacks are kept as a sensitivity/audit topic because they expose reserve behaviour and affect high-cardinality encodings, but the final price model uses sold-to-third-party lots only.
+**Ablation (vendor buybacks)**: Buybacks are kept as a sensitivity/audit topic because they expose reserve behaviour and affect high-cardinality encodings, but the final price model uses sold-to-third-party only for unbiased expected price mapping.
 
 **Leakage audit**: PASSED — sensors validated no temporal leakage in target encoding, macro features, or train/OOT splits.
 
@@ -246,17 +246,17 @@ The remaining ~75% of price variance cannot be recovered from catalogue data alo
 
 ## Citation
 
-## Regenerar figuras SHAP (producción)
+## Regenerate SHAP figures (production)
 
-Las figuras de interpretabilidad (SHAP) se calculan sobre **surrogate LGBM** entrenado para imitar
-el stacking ensemble. Esto es necesario porque SHAP TreeExplainer requiere un único árbol, no
-un ensemble de ensembles. La fidelidad del surrogate se verifica antes de computar SHAP.
+Interpretability figures (SHAP) are computed on a **surrogate LGBM** trained to imitate
+the stacking ensemble. This is necessary because SHAP TreeExplainer requires a single tree model, not
+an ensemble of ensembles. Surrogate fidelity is verified before computing SHAP.
 
-Abre el notebook `notebooks/05_Model_Audit.ipynb` y ejecuta la sección §9 (SHAP Interpretability).
-Las figuras se guardan automáticamente en `outputs/figures/audit/`.
+Open the notebook `notebooks/05_Model_Audit.ipynb` and execute section §9 (SHAP Interpretability).
+The figures are automatically saved in `outputs/figures/audit/`.
 
-El script `scripts/generate_shap_production.py` ha sido eliminado; el notebook 05 es la fuente
-canónica para la generación de SHAP, con verificaciones de fidelidad del surrogate inline.
+The script `scripts/generate_shap_production.py` has been removed; notebook 05 is the canonical
+source for SHAP generation, with inline surrogate fidelity checks.
 
 
 If you use this work, please cite:
