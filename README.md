@@ -151,8 +151,9 @@ catalogue features alone (pedigree, consignor reputation, catalogue position, ma
 The remaining 75% of price variance is driven by unobservable factors: physical conformation,
 biomechanics, veterinary inspection findings, temperament, and buyer–day demand dynamics.
 These features require video analysis and computer vision, which is the natural next step
-beyond this work. See An et al. (2026) for evidence that clinical and biomechanical variables
-significantly improve equine prediction models.
+beyond this work. An et al. (2026) demonstrate that ML models using clinical (OCD surgery)
+and pedigree data can meaningfully predict racehorse performance, suggesting that analogous
+clinical variables could improve auction price models beyond catalogue features alone.
 
 ---
 

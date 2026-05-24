@@ -24,6 +24,9 @@ notebooks/*_files/
 notebooks/mlruns/
 notebooks/best_run_ids.json
 
+# Repomix
+repomix*
+
 # Local docs
 docs/
 
