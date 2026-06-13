@@ -55,8 +55,8 @@ def ensemble_disagreement(
 
 
 def _load_stage2_base_models() -> dict[str, object]:
-    """Load the four base regressors from the backup stacking wrapper."""
-    wrapper = joblib.load("models/_backup_stage2_final_model.joblib")
+    """Load the four base regressors from the canonical stacking wrapper."""
+    wrapper = joblib.load("models/stage2_final_model.joblib")
     return wrapper.base_models
 
 

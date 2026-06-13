@@ -11,11 +11,18 @@ from dataclasses import dataclass
 from typing import Mapping, Sequence
 
 import numpy as np
+from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 
 
 @dataclass
-class StackingClassifierWrapper:
-    """Classifier wrapper exposing sklearn-like ``predict_proba``."""
+class StackingClassifierWrapper(BaseEstimator, ClassifierMixin):
+    """Classifier wrapper exposing sklearn-like ``predict_proba``.
+
+    Inherits from ``BaseEstimator + ClassifierMixin`` for sklearn
+    Pipeline / cross_val_score / CalibratedClassifierCV compatibility.
+    The ``fit`` method is a no-op — base models and meta-learner are
+    pre-trained in the modeling notebook.
+    """
 
     base_models: Mapping[str, object]
     meta: object
@@ -30,10 +37,21 @@ class StackingClassifierWrapper:
     def predict_proba(self, X) -> np.ndarray:
         return self.meta.predict_proba(self._meta_features(X))
 
+    def predict(self, X) -> np.ndarray:
+        return (self.predict_proba(X)[:, 1] >= 0.5).astype(int)
+
+    def fit(self, X, y=None):
+        """No-op fit — base models and meta-learner are pre-trained."""
+        return self
+
 
 @dataclass
-class StackingRegressorWrapper:
-    """Regressor wrapper exposing sklearn-like ``predict``."""
+class StackingRegressorWrapper(BaseEstimator, RegressorMixin):
+    """Regressor wrapper exposing sklearn-like ``predict``.
+
+    Inherits from ``BaseEstimator + RegressorMixin`` for sklearn
+    Pipeline / cross_val_score compatibility.
+    """
 
     base_models: Mapping[str, object]
     meta: object
@@ -47,3 +65,7 @@ class StackingRegressorWrapper:
 
     def predict(self, X) -> np.ndarray:
         return self.meta.predict(self._meta_features(X))
+
+    def fit(self, X, y=None):
+        """No-op fit — base models and meta-learner are pre-trained."""
+        return self

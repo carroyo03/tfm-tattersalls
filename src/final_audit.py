@@ -98,13 +98,17 @@ def _check_exported_metrics() -> dict[str, float]:
     clf = pd.read_parquet(clf_path)
     reg = pd.read_parquet(reg_path)
     _require_columns(clf, ["sold_to_third_party", "prob_stacking"], "audit_clf_predictions")
-    _require_columns(reg, ["log_price_true", "log_price_pred_stacking"], "audit_reg_predictions")
+    # ── Stage 2 fix (2026-06-13): model predicts in log_price_detrended space.
+    # log_price_detrended = log_price_gns − log_year_median_price_prior.
+    # The audit must compare detrended predictions against detrended true values,
+    # NOT against raw log_price_gns (which would produce RMSE ~9.6, bias ~9.5).
+    _require_columns(reg, ["log_price_detrended_true", "log_price_pred_stacking"], "audit_reg_predictions")
 
     disc = classification_discrimination(
         clf["sold_to_third_party"], clf["prob_stacking"], n_boot=0
     )
     reg_met = regression_metrics(
-        reg["log_price_true"], reg["log_price_pred_stacking"], n_boot=0
+        reg["log_price_detrended_true"], reg["log_price_pred_stacking"], n_boot=0
     )
     return {
         "auc_roc": float(disc["auc_roc"]),

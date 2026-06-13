@@ -1,18 +1,17 @@
 """Stage 2 ablation: impact of including vendor buybacks in the target-encoding base.
 
-In the feature engineering pipeline (03_FeatureEngineering, Cell 22), the encoding
-base ``df_price`` includes BOTH sold_to_third_party AND vendor_buyback lots:
+⚠ NOTE (2026-06-13): The production pipeline (03_FeatureEngineering §4) now uses
+sold_to_third_party ONLY as the encoding base (df_price = df[sold_to_third_party]).
+Vendor buybacks are excluded because they represent reserve-not-met non-transactions.
 
-    df_price = df[(df['sold_to_third_party']) | (df['vendor_buyback'])]
-
-Vendor buybacks have a recorded price (the revealed reserve), so ``log_price_gns``
-is computed from ``price_gns`` for them (Cell 10 in FE notebook).
-
-This script quantifies the counterfactual: what happens to M-estimate encodings
-if vendor buybacks are excluded?  Key questions for the thesis:
+This script documents the counterfactual: what would change if buybacks WERE included?
+It compares encoding_base = sold+buyback vs encoding_base = sold_only.
+Key questions for the thesis:
   1. How many entity observations are gained?
   2. How much do M-estimate values shift?
   3. Are any entities visible ONLY via buybacks?
+
+The sold_only base (WITHOUT buybacks) is the CURRENT production setting.
 
 Outputs written to outputs/analyses/:
   - ablation_vendor_buybacks_entity_impact.csv
