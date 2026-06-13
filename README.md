@@ -9,14 +9,14 @@
 This project develops a two-stage predictive pipeline for the *Tattersalls Autumn Horses in Training Sale* (2009–2025, 17 editions, 26,076 catalogued lots). The pipeline addresses two sequential questions:
 
 1. **Will this horse sell to a third party?** — binary classification → P(sold\_to\_third\_party)
-2. **What price will it fetch?** — regression on `log(price_gns)`, applied to all offered lots
+2. **What price will it fetch?** — regression on `log_price_gns` (detrended: `log_price_gns − log_year_median`), applied to all offered lots
 
 The core challenges driving methodological choices:
 
 - **Selection bias** — prices are only cleanly observed for lots sold to third parties. Vendor buybacks/RNAs indicate that the reserve was not met, so they are analysed as non-transactions rather than true market prices.
 - **Temporal drift** — 17 years of macroeconomic shift (+78% nominal prices, GBP/EUR volatility, BoE rate cycles) require strict temporal validation and a detrended regression target.
 - **High-cardinality entities** — ~997 unique sires, ~840 consignors, with ~90% and ~70% rotation between early (2009–2015) and recent (2021–2025) periods. Cold-start risk at inference time.
-- **Log-normal price distribution** — skewness 6.98 in raw scale, 0.03 in log scale. Regression target is always `log_price_gns`.
+- **Log-normal price distribution** — skewness 6.98 in raw scale, 0.03 in log scale. Regression target is `log_price_detrended` (`log_price_gns − log_year_median_price_prior`).
 
 ---
 
@@ -47,15 +47,17 @@ Binary classifier predicting whether a catalogued lot will sell to a third party
 | **Class imbalance** | ~87% positive — `class_weight='balanced'` + PR-AUC optimisation | Accuracy misleading; F1-weighted is the primary metric |
 | **Final model selected in modeling** | **Stacking ensemble (RF · XGB · LGBM · CatBoost) with LR meta-learner** | PR-AUC tied (0.938) with Random Forest; stacking wins ROC-AUC (0.6521 vs 0.6461) and calibration |
 
-### Stage 2 — Regression: log(price\_gns)
+### Stage 2 — Regression: log\_price\_detrended
 
 Price regression trained on lots with observable prices, applied to the full offered universe.
+Target is **detrended**: `log_price_detrended = log_price_gns − log_year_median_price_prior`.
+At prediction time, the trend is re-added: `log_price_nominal = pred_detrended + log_year_median_price_prior`.
 
 | Decision | Choice | Reason |
 |---|---|---|
 | **Training set** | sold\_to\_third\_party only (~16.5k rows) | Realised third-party market price; excludes reserve-not-met/buyback observations |
 | **Inference set** | All offered lots (`inference_universe`) | Counterfactual fair-value for sold, buyback, and not-sold lots |
-| **Target** | `log_price_gns` | Skewness correction; RMSE in log-scale ≈ RMSLE |
+| **Target** | `log_price_detrended` | Removes +78% nominal drift; model focuses on relative horse value |
 | **Detrending** | `log_price_gns − log_year_median_price_prior` | Absorbs 78% nominal drift; re-added at prediction time |
 | **Final model selected in modeling** | **Stacking ensemble (RF · XGB · LGBM · CatBoost) with Ridge meta-learner** | Wins validation RMSE (1.146 vs RF 1.158, **−1%**). Margin is modest; stacking chosen for robustness |
 
@@ -65,9 +67,9 @@ Price regression trained on lots with observable prices, applied to the full off
 Raw CSV (26,076 lots)
   └─ notebooks/01_Data_Preparation      →  clean_data.parquet
        └─ notebooks/02_EDA_Analysis     →  autumn_horses_modeling_ready.csv
-            └─ notebooks/03_FeatureEngineering  →  classification_ready   (Stage 1)
-                                               →  regression_ready       (Stage 2 train)
-                                               →  inference_universe     (Stage 2 predict)
+            └─ notebooks/03_FeatureEngineering  →  classification_ready   (20 selected features, Stage 1)
+                                               →  regression_ready       (12 selected features, Stage 2 train)
+                                               →  inference_universe     (selected features, Stage 2 predict)
                  └─ notebooks/04_Modeling       →  stacking predictions + SHAP
                       └─ notebooks/05_Model_Audit  →  fairness · calibration · RNA · drift
 ```
@@ -99,6 +101,8 @@ Raw CSV (26,076 lots)
 | Sire-dam combo — leakage risk | Excluded from regression; novelty proxy in classification | 90%+ singletons |
 
 **Target encoding strategy**: M-estimate with expanding temporal window — each observation's encoding uses only data from years prior to its sale year. Global mean shrinkage factor `m=10` (price) / `m=50` (sale rate).
+
+**Feature selection**: Features reduced from 55 to **20 (classification)** and **12 (regression)** via cumulative permutation importance + redundancy diagnostic. See `03_FeatureEngineering` §8.5–8.7.
 
 **Model Performance Snapshot from Modeling Run** (test OOT 2022–2025):
 
