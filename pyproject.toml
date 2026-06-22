@@ -24,6 +24,12 @@ dependencies = [
     "optuna>=3.6",
     "optuna-integration[mlflow]",
     "catboost>=1.2",
+    "pytest>=7.0",
+    "joblib",
+    "shap",
+    "statsmodels",
+    "lightgbm",
+    "xgboost",
 ]
 
 [tool.pytest.ini_options]
