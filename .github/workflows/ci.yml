@@ -18,7 +18,7 @@ jobs:
           cache: pip
 
       - name: Install
-        run: pip install uv && uv pip install -r requirements.txt
+        run: pip install uv && uv sync
 
       - name: Smoke tests
         run: pytest tests/ -q
