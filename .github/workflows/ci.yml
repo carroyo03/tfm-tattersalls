@@ -15,10 +15,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: pip
 
-      - name: Install
-        run: pip install uv && uv sync
+      - name: Install test deps
+        run: pip install pytest numpy pandas scipy scikit-learn statsmodels
 
       - name: Smoke tests
         run: pytest tests/ -q
