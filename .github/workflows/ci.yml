@@ -17,7 +17,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install test deps
-        run: pip install pytest numpy pandas scipy scikit-learn statsmodels
+        run: pip install pytest numpy pandas scipy scikit-learn statsmodels matplotlib
 
       - name: Smoke tests
         run: pytest tests/ -q
